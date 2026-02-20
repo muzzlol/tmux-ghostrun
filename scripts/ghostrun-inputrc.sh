@@ -14,31 +14,14 @@ set +e +u +o pipefail 2>/dev/null
 # to intercept real commands typed by the user in this one-shot input shell.
 unset PROMPT_COMMAND 2>/dev/null || true
 
-# ─── Build static PS1 (computed once — popup only takes one command) ───
+# ─── Prompt (metadata is in the popup title/border) ──────────────────
 
-_gr_dir=$(basename "${GHOSTRUN_CWD:-$PWD}")
-_gr_branch=$(git -C "${GHOSTRUN_CWD:-$PWD}" branch --show-current 2>/dev/null || true)
-_gr_dirty=""
-if [ -n "$_gr_branch" ]; then
-    if ! git -C "${GHOSTRUN_CWD:-$PWD}" diff --quiet 2>/dev/null || \
-       ! git -C "${GHOSTRUN_CWD:-$PWD}" diff --cached --quiet 2>/dev/null; then
-        _gr_dirty=" ±"
-    fi
-fi
+PS1="\n  ❯ "
 
-# Colored metadata blocks matching catppuccin theme
-_gr_meta="  \[\033[48;2;45;27;78m\033[38;2;255;255;255m\]   ${_gr_dir} \[\033[0m\]"
-if [ -n "$_gr_branch" ]; then
-    _gr_meta="${_gr_meta} \[\033[48;2;30;58;95m\033[38;2;255;255;255m\]  ${_gr_branch}${_gr_dirty} \[\033[0m\]"
-fi
-PS1="\n${_gr_meta}\n\n  ❯ "
-
-# ─── Initial screen layout (clear + vertical padding for spacious feel) ─
+# ─── Initial screen layout ───────────────────────────────────────────
 
 clear
-_gr_pad=$(( ${LINES:-24} * 30 / 100 ))
-[ "$_gr_pad" -lt 2 ] && _gr_pad=2
-printf '%0.s\n' $(seq 1 "$_gr_pad")
+printf "\n"
 
 # ─── Command interception via prompt-armed DEBUG trap ──────────────────
 
@@ -84,7 +67,7 @@ _gr_intercept() {
             exit 0
             ;;
         "?")
-            printf "\n\033[1m  ghostrun\033[0m\n\n"
+            printf "\n"
             printf "  \033[2mcommand\033[0m   run in background, popup closes\n"
             printf "  \033[2m[\033[0m         switch to output view\n"
             printf "  \033[2mtab\033[0m       shell completion (normal)\n"

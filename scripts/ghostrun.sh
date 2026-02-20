@@ -20,12 +20,33 @@ get_opt() {
 LINGER=$(get_opt "@ghostrun-linger"  "20")
 MAX_HISTORY=$(get_opt "@ghostrun-history" "30")
 POPUP_W=$(get_opt "@ghostrun-popup-w" "75%")
-POPUP_H=$(get_opt "@ghostrun-popup-h" "50%")
+POPUP_H_INPUT=$(get_opt "@ghostrun-popup-h-input" "7")
+POPUP_H_OUTPUT=$(get_opt "@ghostrun-popup-h-output" "50%")
 
-# ─── Color palette (catppuccin-inspired) ───────────────────────────────
+# ─── Configurable colors ─────────────────────────────────────────────
 
-C_PURPLE='\033[48;2;45;27;78m\033[38;2;255;255;255m'
-C_BLUE='\033[48;2;30;58;95m\033[38;2;255;255;255m'
+COLOR_BORDER=$(get_opt "@ghostrun-color-border" "#8b0000")
+COLOR_BG=$(get_opt "@ghostrun-color-bg"         "#000000")
+COLOR_FG=$(get_opt "@ghostrun-color-fg"         "#c0caf5")
+COLOR_ACCENT1=$(get_opt "@ghostrun-color-accent1" "#4a1942")
+COLOR_ACCENT2=$(get_opt "@ghostrun-color-accent2" "#19334a")
+
+# ─── Hex → RGB helper ────────────────────────────────────────────────
+
+_hex_to_rgb() {
+    local hex="${1#\#}"
+    printf '%d;%d;%d' "0x${hex:0:2}" "0x${hex:2:2}" "0x${hex:4:2}"
+}
+
+# ─── Color palette ───────────────────────────────────────────────────
+
+_bg_rgb=$(_hex_to_rgb "$COLOR_BG")
+_a1_rgb=$(_hex_to_rgb "$COLOR_ACCENT1")
+_a2_rgb=$(_hex_to_rgb "$COLOR_ACCENT2")
+
+_fg_rgb=$(_hex_to_rgb "$COLOR_FG")
+C_ACCENT1="\033[48;2;${_a1_rgb}m\033[38;2;${_fg_rgb}m"
+C_ACCENT2="\033[48;2;${_a2_rgb}m\033[38;2;${_fg_rgb}m"
 C_GREEN='\033[38;2;166;218;149m'
 C_RED='\033[38;2;237;135;150m'
 C_YELLOW='\033[38;2;238;212;159m'
@@ -229,12 +250,30 @@ cmd_open() {
 
     _log "open: mode=$mode"
 
+    # Build metadata tabs for the popup title (rendered in the top border)
+    local display_path="${cwd/#$HOME/~}"
+    local branch
+    branch=$(git -C "$cwd" branch --show-current 2>/dev/null || true)
+    local dirty=""
+    if [ -n "$branch" ]; then
+        if ! git -C "$cwd" diff --quiet 2>/dev/null || \
+           ! git -C "$cwd" diff --cached --quiet 2>/dev/null; then
+            dirty=" ±"
+        fi
+    fi
+
+    local title=" #[bg=${COLOR_ACCENT1},fg=${COLOR_FG}]  ${display_path} #[default]"
+    if [ -n "$branch" ]; then
+        title="${title}#[bg=${COLOR_ACCENT2},fg=${COLOR_FG}]  ${branch}${dirty} #[default]"
+    fi
+    title="${title} "
+
     tmux display-popup -E \
-        -b rounded \
-        -s 'bg=#1e2030,fg=#cad3f5' \
-        -S 'fg=#5b6078' \
-        -T ' ghostrun ' \
-        -w "$POPUP_W" -h "$POPUP_H" \
+        -b heavy \
+        -s "bg=${COLOR_BG},fg=${COLOR_FG}" \
+        -S "fg=${COLOR_BORDER}" \
+        -T "$title" \
+        -w "$POPUP_W" -h "$([ "$mode" = "input" ] && echo "$POPUP_H_INPUT" || echo "$POPUP_H_OUTPUT")" \
         -d "$cwd" \
         -e "GHOSTRUN_SESSION=$main_session" \
         -e "GHOSTRUN_CWD=$cwd" \
@@ -349,7 +388,7 @@ popup_output() {
         local sep_len=$((cols - 4))
         [ "$sep_len" -gt 80 ] && sep_len=80
         printf "  ${C_DIM}"
-        printf '─%.0s' $(seq 1 "$sep_len")
+        printf '━%.0s' $(seq 1 "$sep_len")
         printf "${C_RESET}\n"
 
         # ── Render output ──
@@ -476,7 +515,6 @@ show_output_help() {
     local pad=$(( (lines - 12) / 2 ))
     [ "$pad" -lt 1 ] && pad=1
     printf '%0.s\n' $(seq 1 "$pad")
-    printf "  ${C_BOLD}ghostrun${C_RESET}\n\n"
     printf "  ${C_DIM}[${C_RESET}         previous command\n"
     printf "  ${C_DIM}]${C_RESET}         next command\n"
     printf "  ${C_DIM}m${C_RESET}         switch to input\n"
