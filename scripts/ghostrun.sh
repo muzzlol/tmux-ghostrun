@@ -273,17 +273,34 @@ cmd_open() {
     fi
     title="${title} "
 
-    tmux display-popup -E \
-        -b heavy \
-        -s "bg=${COLOR_BG},fg=${COLOR_FG}" \
-        -S "fg=${COLOR_BORDER}" \
-        -T "$title" \
-        -w "$POPUP_W" -h "$([ "$mode" = "input" ] && echo "$POPUP_H_INPUT" || echo "$POPUP_H_OUTPUT")" \
-        -d "$cwd" \
-        -e "GHOSTRUN_SESSION=$main_session" \
-        -e "GHOSTRUN_CWD=$cwd" \
-        -e "GHOSTRUN_SCRIPTS=$SCRIPTS_DIR" \
-        "$SCRIPTS_DIR/ghostrun.sh" popup "$mode"
+    local switch_file="/tmp/ghostrun-switch-open-$$"
+    trap 'rm -f "$switch_file"' EXIT
+
+    while true; do
+        rm -f "$switch_file"
+        local popup_h
+        popup_h=$([ "$mode" = "input" ] && echo "$POPUP_H_INPUT" || echo "$POPUP_H_OUTPUT")
+
+        tmux display-popup -E \
+            -b heavy \
+            -s "bg=${COLOR_BG},fg=${COLOR_FG}" \
+            -S "fg=${COLOR_BORDER}" \
+            -T "$title" \
+            -w "$POPUP_W" -h "$popup_h" \
+            -d "$cwd" \
+            -e "GHOSTRUN_SESSION=$main_session" \
+            -e "GHOSTRUN_CWD=$cwd" \
+            -e "GHOSTRUN_SCRIPTS=$SCRIPTS_DIR" \
+            -e "GHOSTRUN_OPEN_SWITCH_FILE=$switch_file" \
+            "$SCRIPTS_DIR/ghostrun.sh" popup "$mode"
+
+        if [ -f "$switch_file" ]; then
+            mode=$(<"$switch_file")
+            _log "open: mode switch to $mode, reopening popup"
+            continue
+        fi
+        break
+    done
 }
 
 # ─── Subcommand: popup ─────────────────────────────────────────────────
@@ -296,26 +313,28 @@ cmd_popup() {
     local gs
     gs=$(ghost_session_name "$main_session")
 
+    # Internal switch file for signaling within the popup process
     export GHOSTRUN_SWITCH_FILE="/tmp/ghostrun-switch-$$"
     trap 'rm -f "$GHOSTRUN_SWITCH_FILE"' EXIT
 
-    while true; do
-        rm -f "$GHOSTRUN_SWITCH_FILE"
+    rm -f "$GHOSTRUN_SWITCH_FILE"
 
-        if [ "$mode" = "input" ]; then
-            popup_input
-        else
-            popup_output
-        fi
+    if [ "$mode" = "input" ]; then
+        popup_input
+    else
+        popup_output
+    fi
 
-        # Check if a mode switch was requested
-        if [ -f "$GHOSTRUN_SWITCH_FILE" ]; then
-            mode=$(<"$GHOSTRUN_SWITCH_FILE")
-            _log "popup: mode switch to $mode"
-            continue
+    # If a mode switch was requested, propagate it to the outer loop in cmd_open
+    # so the popup is reopened with the correct dimensions
+    if [ -f "$GHOSTRUN_SWITCH_FILE" ]; then
+        local new_mode
+        new_mode=$(<"$GHOSTRUN_SWITCH_FILE")
+        _log "popup: propagating mode switch to $new_mode"
+        if [ -n "$GHOSTRUN_OPEN_SWITCH_FILE" ]; then
+            echo "$new_mode" > "$GHOSTRUN_OPEN_SWITCH_FILE"
         fi
-        break
-    done
+    fi
 }
 
 # ─── Input mode: launch real bash with custom rcfile ───────────────────
