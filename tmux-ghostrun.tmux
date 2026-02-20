@@ -29,3 +29,4 @@ tmux set-hook -ga session-closed \
 # --- Filter ghost sessions from choose-tree (prefix + s) ---
 
 tmux bind-key s choose-tree -Zs -f '#{?#{m:_ghostrun_*,#{session_name}},0,1}'
+tmux bind-key w choose-tree -Zw -f '#{?#{m:_ghostrun_*,#{session_name}},0,1}'
