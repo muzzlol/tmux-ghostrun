@@ -414,6 +414,11 @@ popup_output() {
         printf '━%.0s' $(seq 1 "$sep_len")
         printf "${C_RESET}\n"
 
+        # ── Check if command is done ──
+        local dead
+        dead=$(entry_fmt "$gs" "$view_idx" '#{pane_dead}')
+        [ -z "$dead" ] && dead="1"
+
         # ── Render output ──
         local avail_lines=${LINES:-24}
         local output_lines=$((avail_lines - 7))
@@ -431,16 +436,17 @@ popup_output() {
                     printf "  %s\n" "$line"
                 done
             else
-                printf "\n  ${C_DIM}waiting for output...${C_RESET}\n"
+                if [ "$dead" = "1" ]; then
+                    printf "\n  ${C_DIM}(no output)${C_RESET}\n"
+                else
+                    printf "\n  ${C_DIM}waiting for output...${C_RESET}\n"
+                fi
             fi
         else
             printf "\n  ${C_DIM}no output available${C_RESET}\n"
         fi
 
         # ── Read key ──
-        local dead
-        dead=$(entry_fmt "$gs" "$view_idx" '#{pane_dead}')
-        [ -z "$dead" ] && dead="1"
         local timeout=1
         [ "$dead" = "1" ] && timeout=""
 
