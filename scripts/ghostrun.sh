@@ -5,6 +5,11 @@
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GHOSTRUN_LOG="/tmp/ghostrun-debug.log"
 
+# Truncate log if exceeds 100KB
+if [[ -f "$GHOSTRUN_LOG" && $(stat -f%z "$GHOSTRUN_LOG" 2>/dev/null || stat -c%s "$GHOSTRUN_LOG" 2>/dev/null) -gt 102400 ]]; then
+    > "$GHOSTRUN_LOG"
+fi
+
 # ─── Debug logging ─────────────────────────────────────────────────────
 
 _log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*" >> "$GHOSTRUN_LOG"; }

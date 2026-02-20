@@ -23,7 +23,7 @@ tmux bind-key "$BIND_KEY" run-shell "$SCRIPTS_DIR/ghostrun.sh open"
 
 # Note: tmux double quotes needed so #{hook_session_name} gets format-expanded at trigger time.
 # Shell single quotes protect the expanded name from word splitting.
-tmux set-hook -g session-closed \
+tmux set-hook -ga session-closed \
     "run-shell \"${SCRIPTS_DIR}/ghostrun.sh cleanup '#{hook_session_name}'\""
 
 # --- Filter ghost sessions from choose-tree (prefix + s) ---

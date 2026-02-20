@@ -5,7 +5,6 @@
 # ─── Load user's shell environment (completions, aliases, etc.) ────────
 
 [ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc" 2>/dev/null || true
-[ -f "$HOME/.bash_profile" ] && source "$HOME/.bash_profile" 2>/dev/null || true
 
 # Undo any strict modes the user's rc files might have set
 set +e +u +o pipefail 2>/dev/null
