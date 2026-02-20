@@ -334,7 +334,6 @@ popup_output() {
     local source_cwd="${GHOSTRUN_CWD}"
 
     if ! tmux has-session -t "=$gs" 2>/dev/null; then
-        echo "output" > "$GHOSTRUN_SWITCH_FILE"  # fall back — actually switch to input
         echo "input" > "$GHOSTRUN_SWITCH_FILE"
         return 0
     fi
