@@ -11,6 +11,7 @@
 - `Up` / `Down` scroll output (copy-mode aware)
 - `m` switch back to input mode
 - `q` or `Esc` close output popup
+- output keys are active only while output popup is open
 
 ## Options
 
@@ -20,7 +21,6 @@
 - `@ghostrun-popup-w` (default: `75%`)
 - `@ghostrun-popup-h-input` (default: `7`)
 - `@ghostrun-popup-h-output` (default: `50%`)
-- `@ghostrun-output-key-table` (default: `ghostrun`)
 
 Color options:
 - `@ghostrun-color-border`
