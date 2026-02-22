@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ghostrun.sh — modular controller for tmux-ghostrun
-# Subcommands: open, popup, exec, nav, cleanup
+# Subcommands: open, popup, exec, nav, sync-view, cleanup
 
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -16,8 +16,9 @@ case "${1:-}" in
     popup)   shift; cmd_popup "$@" ;;
     exec)    shift; cmd_exec "$@" ;;
     nav)     shift; cmd_nav "$@" ;;
+    sync-view) shift; cmd_sync_view "$@" ;;
     switch-input) shift; cmd_switch_input "$@" ;;
     close)   shift; cmd_close "$@" ;;
     cleanup) shift; cmd_cleanup "$@" ;;
-    *)       echo "Usage: ghostrun.sh {open|popup|exec|nav|switch-input|close|cleanup}" >&2; exit 1 ;;
+    *)       echo "Usage: ghostrun.sh {open|popup|exec|nav|sync-view|switch-input|close|cleanup}" >&2; exit 1 ;;
 esac
