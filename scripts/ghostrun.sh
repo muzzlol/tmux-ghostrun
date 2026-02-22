@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ghostrun.sh — single-script controller for tmux-ghostrun
-# Subcommands: open, popup, exec, cleanup
+# Subcommands: open, popup, exec, nav, cleanup
 
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GHOSTRUN_LOG="/tmp/ghostrun-debug.log"
@@ -36,29 +36,6 @@ COLOR_FG=$(get_opt "@ghostrun-color-fg"         "#c0caf5")
 COLOR_ACCENT1=$(get_opt "@ghostrun-color-accent1" "#4a1942")
 COLOR_ACCENT2=$(get_opt "@ghostrun-color-accent2" "#19334a")
 
-# ─── Hex → RGB helper ────────────────────────────────────────────────
-
-_hex_to_rgb() {
-    local hex="${1#\#}"
-    printf '%d;%d;%d' "0x${hex:0:2}" "0x${hex:2:2}" "0x${hex:4:2}"
-}
-
-# ─── Color palette ───────────────────────────────────────────────────
-
-_bg_rgb=$(_hex_to_rgb "$COLOR_BG")
-_a1_rgb=$(_hex_to_rgb "$COLOR_ACCENT1")
-_a2_rgb=$(_hex_to_rgb "$COLOR_ACCENT2")
-
-_fg_rgb=$(_hex_to_rgb "$COLOR_FG")
-C_ACCENT1="\033[48;2;${_a1_rgb}m\033[38;2;${_fg_rgb}m"
-C_ACCENT2="\033[48;2;${_a2_rgb}m\033[38;2;${_fg_rgb}m"
-C_GREEN='\033[38;2;166;218;149m'
-C_RED='\033[38;2;237;135;150m'
-C_YELLOW='\033[38;2;238;212;159m'
-C_DIM='\033[2m'
-C_BOLD='\033[1m'
-C_RESET='\033[0m'
-
 # ─── Ghost session helpers ─────────────────────────────────────────────
 
 ghost_session_name() {
@@ -68,7 +45,7 @@ ghost_session_name() {
 
 ensure_ghost_session() {
     local gs="$1"
-    if ! tmux has-session -t "=$gs" 2>/dev/null; then
+    if ! tmux has-session -t "$gs" 2>/dev/null; then
         _log "Creating ghost session: $gs"
         local init_win
         init_win=$(tmux new-session -d -P -F '#{window_index}' -s "$gs" -x 200 -y 50 2>&1)
@@ -76,10 +53,10 @@ ensure_ghost_session() {
             _log "ensure_ghost_session: ERROR — new-session failed: $init_win"
             return 1
         fi
-        tmux set-option -wt "=$gs:$init_win" remain-on-exit on
-        tmux set-option -wt "=$gs:$init_win" remain-on-exit-format "" 2>/dev/null || true
-        tmux set-option  -t "=$gs" status off
-        tmux set-option  -t "=$gs" history-limit 5000
+        tmux set-option -wt "$gs:$init_win" remain-on-exit on
+        tmux set-option -wt "$gs:$init_win" remain-on-exit-format "" 2>/dev/null || true
+        tmux set-option  -t "$gs" status off
+        tmux set-option  -t "$gs" history-limit 5000
         _log "Ghost session created: $gs"
     fi
     return 0
@@ -88,26 +65,26 @@ ensure_ghost_session() {
 # ─── Entry list helpers ────────────────────────────────────────────────
 
 list_entries() {
-    tmux list-windows -t "=$1" -F '#{window_index}' 2>/dev/null | sort -n
+    tmux list-windows -t "$1" -F '#{window_index}' 2>/dev/null | sort -n
 }
 
 entry_count() {
     local c
-    c=$(tmux list-windows -t "=$1" 2>/dev/null | wc -l | tr -d ' ')
+    c=$(tmux list-windows -t "$1" 2>/dev/null | wc -l | tr -d ' ')
     echo "${c:-0}"
 }
 
 entry_opt() {
-    tmux show-option -wqv -t "=$1:$2" "$3" 2>/dev/null || true
+    tmux show-option -wqv -t "$1:$2" "$3" 2>/dev/null || true
 }
 
 entry_fmt() {
-    tmux display-message -t "=$1:$2" -p "$3" 2>/dev/null || true
+    tmux display-message -t "$1:$2" -p "$3" 2>/dev/null || true
 }
 
 get_view_index() {
     local v
-    v=$(tmux show-option -qv -t "=$1" @ghostrun-view 2>/dev/null) || true
+    v=$(tmux show-option -qv -t "$1" @ghostrun-view 2>/dev/null) || true
     if [ -z "$v" ]; then
         list_entries "$1" | tail -1
     else
@@ -116,7 +93,92 @@ get_view_index() {
 }
 
 set_view_index() {
-    tmux set-option -t "=$1" @ghostrun-view "$2" 2>/dev/null || true
+    tmux set-option -t "$1" @ghostrun-view "$2" 2>/dev/null || true
+}
+
+install_output_key_override() {
+    local popup_tty="$1"
+    local fallback_table="$2"
+    local restore_file="$3"
+    local key="$4"
+    local action_cmd="$5"
+    local default_fallback_cmd="$6"
+    local existing_line
+    local fallback_line
+    local fallback_cmd
+    local have_fallback=0
+
+    existing_line=$(tmux list-keys -T root "$key" 2>/dev/null | head -n 1 || true)
+    if [ -n "$existing_line" ]; then
+        printf '%s\n' "$existing_line" >> "$restore_file"
+        fallback_line="${existing_line/-T root/-T $fallback_table}"
+        if tmux source-file - <<<"$fallback_line" 2>/dev/null; then
+            have_fallback=1
+        fi
+    fi
+    if [ "$have_fallback" -eq 0 ]; then
+        tmux bind-key -T "$fallback_table" "$key" $default_fallback_cmd 2>/dev/null || true
+    fi
+
+    fallback_cmd="switch-client -T '$fallback_table' \\; send-keys -K -c '#{client_name}' '$key'"
+    tmux bind-key -T root "$key" \
+        if-shell -F "#{==:#{client_tty},$popup_tty}" \
+        "$action_cmd" \
+        "$fallback_cmd" 2>/dev/null || true
+}
+
+install_output_key_overrides() {
+    local popup_tty="$1"
+    local fallback_table="$2"
+    local restore_file="$3"
+    local gs="$4"
+
+    : > "$restore_file"
+    tmux unbind-key -a -q -T "$fallback_table" 2>/dev/null || true
+
+    install_output_key_override "$popup_tty" "$fallback_table" "$restore_file" "[" \
+        "run-shell \"$SCRIPTS_DIR/ghostrun.sh nav prev '$gs'\"" \
+        "send-keys -H 5b"
+    install_output_key_override "$popup_tty" "$fallback_table" "$restore_file" "]" \
+        "run-shell \"$SCRIPTS_DIR/ghostrun.sh nav next '$gs'\"" \
+        "send-keys -H 5d"
+
+    install_output_key_override "$popup_tty" "$fallback_table" "$restore_file" Up \
+        "if-shell -F '#{pane_in_mode}' 'send-keys -X scroll-up' 'copy-mode -eu'" \
+        "send-keys Up"
+    install_output_key_override "$popup_tty" "$fallback_table" "$restore_file" Down \
+        "if-shell -F '#{pane_in_mode}' 'send-keys -X scroll-down' 'copy-mode -ed'" \
+        "send-keys Down"
+
+    install_output_key_override "$popup_tty" "$fallback_table" "$restore_file" m \
+        "run-shell \"$SCRIPTS_DIR/ghostrun.sh switch-input '$gs' '#{client_name}'\"" \
+        "send-keys -l m"
+    install_output_key_override "$popup_tty" "$fallback_table" "$restore_file" q \
+        "run-shell \"$SCRIPTS_DIR/ghostrun.sh close '#{client_name}'\"" \
+        "send-keys -l q"
+    install_output_key_override "$popup_tty" "$fallback_table" "$restore_file" Escape \
+        "run-shell \"$SCRIPTS_DIR/ghostrun.sh close '#{client_name}'\"" \
+        "send-keys Escape"
+}
+
+cleanup_output_key_overrides() {
+    local fallback_table="$1"
+    local restore_file="$2"
+
+    tmux unbind-key -q -T root "[" 2>/dev/null || true
+    tmux unbind-key -q -T root "]" 2>/dev/null || true
+    tmux unbind-key -q -T root Up 2>/dev/null || true
+    tmux unbind-key -q -T root Down 2>/dev/null || true
+    tmux unbind-key -q -T root m 2>/dev/null || true
+    tmux unbind-key -q -T root q 2>/dev/null || true
+    tmux unbind-key -q -T root Escape 2>/dev/null || true
+
+    if [ -s "$restore_file" ]; then
+        tmux source-file "$restore_file" 2>/dev/null || true
+    fi
+
+    tmux unbind-key -a -q -T "$fallback_table" 2>/dev/null || true
+    rm -f "$restore_file"
 }
 
 # ─── Prune old entries ─────────────────────────────────────────────────
@@ -128,9 +190,84 @@ prune_entries() {
     if [ "$count" -gt "$MAX_HISTORY" ]; then
         local to_kill=$((count - MAX_HISTORY))
         list_entries "$gs" | head -n "$to_kill" | while read -r idx; do
-            tmux kill-window -t "=$gs:$idx" 2>/dev/null || true
+            tmux kill-window -t "$gs:$idx" 2>/dev/null || true
         done
     fi
+}
+
+# ─── Subcommand: nav ───────────────────────────────────────────────────
+
+cmd_nav() {
+    local direction="$1"
+    local gs="${2:-$(tmux display-message -p '#{session_name}')}"
+    local current="${3:-}"
+    local entries target=""
+
+    if [ -z "$direction" ]; then
+        return 1
+    fi
+    if ! tmux has-session -t "$gs" 2>/dev/null; then
+        return 0
+    fi
+
+    entries=$(list_entries "$gs")
+    if [ -z "$entries" ]; then
+        return 0
+    fi
+    if [ -z "$current" ]; then
+        current=$(get_view_index "$gs")
+    fi
+    if ! echo "$entries" | grep -qx "$current"; then
+        current=$(echo "$entries" | tail -1)
+    fi
+
+    case "$direction" in
+        prev)
+            target=$(echo "$entries" | awk -v cur="$current" '
+                $1 < cur { prev = $1 }
+                END { if (prev != "") print prev }
+            ')
+            ;;
+        next)
+            target=$(echo "$entries" | awk -v cur="$current" '
+                $1 > cur { print $1; exit }
+            ')
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+
+    if [ -n "$target" ]; then
+        tmux select-window -t "$gs:$target" 2>/dev/null || true
+        set_view_index "$gs" "$target"
+    fi
+}
+
+# ─── Subcommand: switch-input / close ─────────────────────────────────
+
+cmd_switch_input() {
+    local gs="$1"
+    local client="$2"
+    if [ -z "$gs" ] || [ -z "$client" ]; then
+        _log "switch-input: missing args gs='$gs' client='$client'"
+        return 1
+    fi
+
+    tmux set-option -t "$gs" @ghostrun-open-mode input 2>/dev/null
+    local set_rc=$?
+    _log "switch-input: gs=$gs client=$client set-option-rc=$set_rc"
+    tmux detach-client -t "$client" 2>/dev/null || true
+}
+
+cmd_close() {
+    local client="$1"
+    if [ -z "$client" ]; then
+        _log "close: missing client"
+        return 1
+    fi
+    _log "close: client=$client"
+    tmux detach-client -t "$client" 2>/dev/null || true
 }
 
 # ─── Subcommand: exec ──────────────────────────────────────────────────
@@ -162,7 +299,7 @@ cmd_exec() {
     # This avoids a race where fast commands can exit before remain-on-exit
     # is applied.
     local new_idx
-    new_idx=$(tmux new-window -d -P -t "=$gs" -n "$cmd_short" -c "$cwd" \
+    new_idx=$(tmux new-window -d -P -t "$gs" -n "$cmd_short" -c "$cwd" \
         -F '#{window_index}' "sleep 3600" 2>&1)
 
     _log "exec: new-window returned: '$new_idx'"
@@ -172,22 +309,22 @@ cmd_exec() {
         return 1
     fi
 
-    tmux set-option -wt "=$gs:$new_idx" remain-on-exit on 2>/dev/null || true
-    tmux set-option -wt "=$gs:$new_idx" remain-on-exit-format "" 2>/dev/null || true
-    tmux set-option -wt "=$gs:$new_idx" @ghostrun-cmd  "$cmd"  2>/dev/null
-    tmux set-option -wt "=$gs:$new_idx" @ghostrun-cwd  "$cwd"  2>/dev/null
-    tmux set-option -wt "=$gs:$new_idx" @ghostrun-ts   "$(date +%s)" 2>/dev/null
+    tmux set-option -wt "$gs:$new_idx" remain-on-exit on 2>/dev/null || true
+    tmux set-option -wt "$gs:$new_idx" remain-on-exit-format "" 2>/dev/null || true
+    tmux set-option -wt "$gs:$new_idx" @ghostrun-cmd  "$cmd"  2>/dev/null
+    tmux set-option -wt "$gs:$new_idx" @ghostrun-cwd  "$cwd"  2>/dev/null
+    tmux set-option -wt "$gs:$new_idx" @ghostrun-ts   "$(date +%s)" 2>/dev/null
     set_view_index "$gs" "$new_idx"
 
     local remain_val
-    remain_val=$(tmux show-option -wqv -t "=$gs:$new_idx" remain-on-exit 2>/dev/null || true)
+    remain_val=$(tmux show-option -wqv -t "$gs:$new_idx" remain-on-exit 2>/dev/null || true)
     _log "exec: metadata set on window $new_idx (remain-on-exit=${remain_val:-unset})"
 
     local respawn_out
-    respawn_out=$(tmux respawn-pane -k -t "=$gs:$new_idx" -c "$cwd" sh -c "$cmd" 2>&1)
+    respawn_out=$(tmux respawn-pane -k -t "$gs:$new_idx" -c "$cwd" sh -c "$cmd" 2>&1)
     if [ $? -ne 0 ]; then
         _log "exec: ERROR — respawn-pane failed on $new_idx: $respawn_out"
-        tmux kill-window -t "=$gs:$new_idx" 2>/dev/null || true
+        tmux kill-window -t "$gs:$new_idx" 2>/dev/null || true
         return 1
     fi
 
@@ -197,7 +334,7 @@ cmd_exec() {
         has_cmd=$(entry_opt "$gs" "$idx" "@ghostrun-cmd")
         if [ -z "$has_cmd" ]; then
             _log "exec: killing default window $idx"
-            tmux kill-window -t "=$gs:$idx" 2>/dev/null || true
+            tmux kill-window -t "$gs:$idx" 2>/dev/null || true
         fi
     done
 
@@ -215,21 +352,23 @@ cmd_open() {
     gs=$(ghost_session_name "$main_session")
     local cwd
     cwd=$(tmux display-message -p '#{pane_current_path}')
+    local socket_path
+    socket_path=$(tmux display-message -p '#{socket_path}')
 
     _log "open: session=$main_session gs=$gs cwd=$cwd"
 
     local mode="input"
 
-    if tmux has-session -t "=$gs" 2>/dev/null; then
+    if tmux has-session -t "$gs" 2>/dev/null; then
         # Check for any running command (pane_dead = 0)
         local running
-        running=$(tmux list-panes -s -t "=$gs" -F '#{pane_dead}' 2>/dev/null | grep -c '^0$' || true)
+        running=$(tmux list-panes -s -t "$gs" -F '#{pane_dead}' 2>/dev/null | grep -c '^0$' || true)
         _log "open: running=$running"
 
         if [ "$running" -gt 0 ]; then
             mode="output"
             local running_win
-            running_win=$(tmux list-panes -s -t "=$gs" \
+            running_win=$(tmux list-panes -s -t "$gs" \
                 -F '#{window_index} #{pane_dead}' 2>/dev/null \
                 | grep ' 0$' | tail -1 | awk '{print $1}')
             [ -n "$running_win" ] && set_view_index "$gs" "$running_win"
@@ -291,6 +430,7 @@ cmd_open() {
             -e "GHOSTRUN_SESSION=$main_session" \
             -e "GHOSTRUN_CWD=$cwd" \
             -e "GHOSTRUN_SCRIPTS=$SCRIPTS_DIR" \
+            -e "GHOSTRUN_SOCKET=$socket_path" \
             -e "GHOSTRUN_OPEN_SWITCH_FILE=$switch_file" \
             "$SCRIPTS_DIR/ghostrun.sh" popup "$mode"
 
@@ -308,10 +448,6 @@ cmd_open() {
 
 cmd_popup() {
     local mode="${1:-input}"
-    local main_session="${GHOSTRUN_SESSION:-$(tmux display-message -p '#{session_name}')}"
-    local source_cwd="${GHOSTRUN_CWD:-$(pwd)}"
-    local gs
-    gs=$(ghost_session_name "$main_session")
 
     # Internal switch file for signaling within the popup process
     export GHOSTRUN_SWITCH_FILE="/tmp/ghostrun-switch-$$"
@@ -350,14 +486,18 @@ popup_input() {
         bash --rcfile "$SCRIPTS_DIR/ghostrun-inputrc.sh" -i
 }
 
-# ─── Output mode: display captured output, handle navigation ──────────
+# ─── Output mode: native tmux viewer with popup navigation ────────────
 
 popup_output() {
     local gs
     gs=$(ghost_session_name "${GHOSTRUN_SESSION}")
-    local source_cwd="${GHOSTRUN_CWD}"
+    local socket_path="${GHOSTRUN_SOCKET:-$(tmux display-message -p '#{socket_path}')}"
+    local popup_tty
+    local fallback_table="ghostrun-pass-$$_${RANDOM:-0}"
+    local restore_file="/tmp/ghostrun-root-keys-$$_${RANDOM:-0}.tmux"
+    local output_keys_installed=0
 
-    if ! tmux has-session -t "=$gs" 2>/dev/null; then
+    if ! tmux has-session -t "$gs" 2>/dev/null; then
         echo "input" > "$GHOSTRUN_SWITCH_FILE"
         return 0
     fi
@@ -372,184 +512,45 @@ popup_output() {
     # Current view index
     local view_idx
     view_idx=$(get_view_index "$gs")
-    if ! tmux list-windows -t "=$gs" -F '#{window_index}' 2>/dev/null | grep -qx "$view_idx"; then
+    if ! tmux list-windows -t "$gs" -F '#{window_index}' 2>/dev/null | grep -qx "$view_idx"; then
         view_idx=$(list_entries "$gs" | tail -1)
         set_view_index "$gs" "$view_idx"
     fi
-
-    while true; do
-        clear
-
-        local entries_list
-        entries_list=$(list_entries "$gs")
-        count=$(echo "$entries_list" | wc -l | tr -d ' ')
-
-        # Position of current view (1-based)
-        local pos=0 i=0
-        while read -r idx; do
-            i=$((i + 1))
-            [ "$idx" = "$view_idx" ] && pos=$i && break
-        done <<< "$entries_list"
-        [ "$pos" -eq 0 ] && pos=$count && view_idx=$(echo "$entries_list" | tail -1)
-
-        # Entry metadata
-        local cmd cwd pane_id
-        cmd=$(entry_opt "$gs" "$view_idx" "@ghostrun-cmd")
-        cwd=$(entry_opt "$gs" "$view_idx" "@ghostrun-cwd")
-        pane_id=$(entry_fmt "$gs" "$view_idx" '#{pane_id}')
-
-        # ── Render header ──
-        printf "\n"
-        local status_str
-        status_str=$(render_status "$gs" "$view_idx")
-        printf "  ${C_DIM}[%d/%d]${C_RESET}  ${C_BOLD}%s${C_RESET}  %b\n" "$pos" "$count" "$cmd" "$status_str"
-
-        [ -n "$cwd" ] && printf "  ${C_DIM}%s${C_RESET}\n" "$cwd"
-
-        # Separator
-        local cols=${COLUMNS:-80}
-        local sep_len=$((cols - 4))
-        [ "$sep_len" -gt 80 ] && sep_len=80
-        printf "  ${C_DIM}"
-        printf '━%.0s' $(seq 1 "$sep_len")
-        printf "${C_RESET}\n"
-
-        # ── Check if command is done ──
-        local dead
-        dead=$(entry_fmt "$gs" "$view_idx" '#{pane_dead}')
-        [ -z "$dead" ] && dead="1"
-
-        # ── Render output ──
-        local avail_lines=${LINES:-24}
-        local output_lines=$((avail_lines - 7))
-        [ "$output_lines" -lt 5 ] && output_lines=5
-
-        if [ -n "$pane_id" ]; then
-            local output
-            output=$(tmux capture-pane -p -e -t "$pane_id" -S - -E - 2>/dev/null || true)
-            if [ -n "$output" ]; then
-                echo "$output" | awk '
-                    { lines[NR] = $0 }
-                    /[^[:space:]]/ { last = NR }
-                    END { if (last) for (i = 1; i <= last; i++) print lines[i] }
-                ' | tail -n "$output_lines" | while IFS= read -r line; do
-                    printf "  %s\n" "$line"
-                done
-            else
-                if [ "$dead" = "1" ]; then
-                    printf "\n  ${C_DIM}(no output)${C_RESET}\n"
-                else
-                    printf "\n  ${C_DIM}waiting for output...${C_RESET}\n"
-                fi
-            fi
-        else
-            printf "\n  ${C_DIM}no output available${C_RESET}\n"
-        fi
-
-        # ── Read key ──
-        local timeout=1
-        [ "$dead" = "1" ] && timeout=""
-
-        local key=""
-        if [ -n "$timeout" ]; then
-            read -rsn1 -t "$timeout" key 2>/dev/null || true
-        else
-            read -rsn1 key 2>/dev/null || true
-        fi
-
-        case "$key" in
-            "[")
-                # Previous entry
-                local prev=""
-                while read -r idx; do
-                    [ "$idx" = "$view_idx" ] && break
-                    prev="$idx"
-                done <<< "$entries_list"
-                if [ -n "$prev" ]; then
-                    view_idx="$prev"
-                    set_view_index "$gs" "$view_idx"
-                fi
-                ;;
-            "]")
-                # Next entry
-                local found=0 next_idx=""
-                while read -r idx; do
-                    if [ "$found" -eq 1 ]; then next_idx="$idx"; break; fi
-                    [ "$idx" = "$view_idx" ] && found=1
-                done <<< "$entries_list"
-                if [ -n "$next_idx" ]; then
-                    view_idx="$next_idx"
-                    set_view_index "$gs" "$view_idx"
-                fi
-                ;;
-            "m")
-                echo "input" > "$GHOSTRUN_SWITCH_FILE"
-                return 0
-                ;;
-            "q")
-                return 0
-                ;;
-            $'\x1b')
-                read -rsn5 -t 0.01 _ 2>/dev/null || true
-                return 0
-                ;;
-            "?")
-                show_output_help
-                ;;
-            *)
-                ;; # timeout or unknown → refresh
-        esac
-    done
-}
-
-# ─── Output mode helpers ──────────────────────────────────────────────
-
-render_status() {
-    local gs="$1" idx="$2"
-    local dead
-    dead=$(entry_fmt "$gs" "$idx" '#{pane_dead}')
-
-    if [ "$dead" = "0" ]; then
-        local start_ts now elapsed_str=""
-        start_ts=$(entry_opt "$gs" "$idx" "@ghostrun-ts")
-        now=$(date +%s)
-        if [ -n "$start_ts" ] && [ "$start_ts" -gt 0 ] 2>/dev/null; then
-            local elapsed=$((now - start_ts))
-            [ "$elapsed" -ge 60 ] && elapsed_str="$((elapsed / 60))m "
-            elapsed_str="${elapsed_str}$((elapsed % 60))s"
-        fi
-        printf "${C_YELLOW}⟳ running${C_RESET} ${C_DIM}%s${C_RESET}" "$elapsed_str"
-    else
-        local exit_code start_ts dead_time duration_str=""
-        exit_code=$(entry_fmt "$gs" "$idx" '#{pane_dead_status}')
-        start_ts=$(entry_opt "$gs" "$idx" "@ghostrun-ts")
-        dead_time=$(entry_fmt "$gs" "$idx" '#{pane_dead_time}')
-        if [ -n "$start_ts" ] && [ -n "$dead_time" ] && \
-           [ "$start_ts" -gt 0 ] 2>/dev/null && [ "$dead_time" -gt 0 ] 2>/dev/null; then
-            local dur=$((dead_time - start_ts))
-            [ "$dur" -ge 60 ] && duration_str="$((dur / 60))m "
-            duration_str="${duration_str}$((dur % 60))s"
-        fi
-        if [ "$exit_code" = "0" ]; then
-            printf "${C_GREEN}✓${C_RESET} ${C_DIM}%s${C_RESET}" "$duration_str"
-        else
-            printf "${C_RED}✗ %s${C_RESET} ${C_DIM}%s${C_RESET}" "$exit_code" "$duration_str"
-        fi
+    if [ -z "$socket_path" ]; then
+        _log "popup_output: ERROR — missing socket path"
+        return 1
     fi
-}
 
-show_output_help() {
-    clear
-    local lines=${LINES:-24}
-    local pad=$(( (lines - 12) / 2 ))
-    [ "$pad" -lt 1 ] && pad=1
-    printf '%0.s\n' $(seq 1 "$pad")
-    printf "  ${C_DIM}[${C_RESET}         previous command\n"
-    printf "  ${C_DIM}]${C_RESET}         next command\n"
-    printf "  ${C_DIM}m${C_RESET}         switch to input\n"
-    printf "  ${C_DIM}q / esc${C_RESET}   close\n"
-    printf "\n  ${C_DIM}press any key${C_RESET}\n"
-    read -rsn1 2>/dev/null || true
+    popup_tty=$(tty 2>/dev/null || true)
+    if [ -z "$popup_tty" ]; then
+        _log "popup_output: ERROR — missing client tty"
+        return 1
+    fi
+    _log "popup_output: gs=$gs popup_tty=$popup_tty"
+
+    install_output_key_overrides "$popup_tty" "$fallback_table" "$restore_file" "$gs"
+    output_keys_installed=1
+    trap 'if [ "$output_keys_installed" -eq 1 ]; then cleanup_output_key_overrides "$fallback_table" "$restore_file"; output_keys_installed=0; fi' INT TERM HUP
+    tmux set-option -t "$gs" @ghostrun-open-mode "" 2>/dev/null || true
+    tmux select-window -t "$gs:$view_idx" 2>/dev/null || true
+    set_view_index "$gs" "$view_idx"
+
+    env -u TMUX tmux -S "$socket_path" attach-session -t "$gs"
+    local attach_status=$?
+    _log "popup_output: attach-session exit status=$attach_status"
+
+    if [ "$output_keys_installed" -eq 1 ]; then
+        cleanup_output_key_overrides "$fallback_table" "$restore_file"
+        output_keys_installed=0
+    fi
+    trap - INT TERM HUP
+
+    local next_mode
+    next_mode=$(tmux show-option -qv -t "$gs" @ghostrun-open-mode 2>/dev/null || true)
+    tmux set-option -t "$gs" @ghostrun-open-mode "" 2>/dev/null || true
+    if [ "$next_mode" = "input" ]; then
+        echo "input" > "$GHOSTRUN_SWITCH_FILE"
+    fi
 }
 
 # ─── Subcommand: cleanup ───────────────────────────────────────────────
@@ -559,7 +560,7 @@ cmd_cleanup() {
     case "$session_name" in _ghostrun_*) return 0 ;; esac
     local gs
     gs=$(ghost_session_name "$session_name")
-    tmux kill-session -t "=$gs" 2>/dev/null || true
+    tmux kill-session -t "$gs" 2>/dev/null || true
 }
 
 # ─── Main dispatch ─────────────────────────────────────────────────────
@@ -568,6 +569,9 @@ case "${1:-}" in
     open)    cmd_open ;;
     popup)   shift; cmd_popup "$@" ;;
     exec)    shift; cmd_exec "$@" ;;
+    nav)     shift; cmd_nav "$@" ;;
+    switch-input) shift; cmd_switch_input "$@" ;;
+    close)   shift; cmd_close "$@" ;;
     cleanup) shift; cmd_cleanup "$@" ;;
-    *)       echo "Usage: ghostrun.sh {open|popup|exec|cleanup}" >&2; exit 1 ;;
+    *)       echo "Usage: ghostrun.sh {open|popup|exec|nav|switch-input|close|cleanup}" >&2; exit 1 ;;
 esac
