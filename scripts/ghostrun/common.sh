@@ -81,6 +81,22 @@ get_view_index() {
 
 set_view_index() {
     tmux set-option -t "$1" @ghostrun-view "$2" 2>/dev/null || true
+    local pos
+    pos=$(list_entries "$1" | grep -n "^${2}$" | cut -d: -f1)
+    local total
+    total=$(entry_count "$1")
+    tmux set-option -t "$1" @ghostrun-view-pos "${pos:-1}/${total:-1}" 2>/dev/null || true
+}
+
+install_view_sync_hooks() {
+    local gs="$1"
+    local sync_cmd
+    sync_cmd="run-shell \"$SCRIPTS_DIR/ghostrun.sh sync-view '#{session_name}'\""
+
+    # Keep @ghostrun-view-pos in sync even when users navigate with native tmux bindings.
+    tmux set-hook -t "$gs" 'session-window-changed[90]' "$sync_cmd" 2>/dev/null || true
+    tmux set-hook -t "$gs" 'window-linked[90]' "$sync_cmd" 2>/dev/null || true
+    tmux set-hook -t "$gs" 'window-unlinked[90]' "$sync_cmd" 2>/dev/null || true
 }
 
 install_output_key_override() {

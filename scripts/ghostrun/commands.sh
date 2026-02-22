@@ -71,6 +71,27 @@ cmd_close() {
     tmux detach-client -t "$client" 2>/dev/null || true
 }
 
+cmd_sync_view() {
+    local gs="$1"
+    local idx="${2:-}"
+
+    if [ -z "$gs" ]; then
+        _log "sync-view: missing session"
+        return 1
+    fi
+    if ! tmux has-session -t "$gs" 2>/dev/null; then
+        return 0
+    fi
+
+    if [ -z "$idx" ]; then
+        idx=$(tmux display-message -p -t "$gs" '#{window_index}' 2>/dev/null || true)
+    fi
+    if ! tmux list-windows -t "$gs" -F '#{window_index}' 2>/dev/null | grep -qx "$idx"; then
+        idx=$(list_entries "$gs" | tail -1)
+    fi
+    [ -n "$idx" ] && set_view_index "$gs" "$idx"
+}
+
 cmd_exec() {
     local main_session="$1"; shift
     local cwd="$1"; shift
@@ -138,6 +159,7 @@ cmd_exec() {
     done
 
     prune_entries "$gs"
+    set_view_index "$gs" "$new_idx"
     _log "exec: done"
 }
 

@@ -137,6 +137,30 @@ popup_input() {
         bash --rcfile "$SCRIPTS_DIR/ghostrun-inputrc.sh" -i
 }
 
+configure_output_status() {
+    local gs="$1"
+
+    tmux set-option -t "$gs" status on
+    tmux set-option -t "$gs" status-position bottom
+    tmux set-option -t "$gs" status-style "bg=#111111,fg=#666666"
+    tmux set-option -t "$gs" status-interval 1
+
+    # Single status-format line — no window list
+    # Left: icon │ position │ time   Right: key hints
+    local fmt='#[align=left]'
+    # Icon: spinner (running) / tick (success) / cross+code (failure)
+    fmt+="#{?#{pane_dead},#{?#{==:#{pane_dead_status},0},#[fg=green] ✓,#[fg=red] ✗ #{pane_dead_status}},#[fg=yellow] #($SCRIPTS_DIR/ghostrun/spinner.sh)}"
+    # Separator + position (stored option, updated on every nav)
+    fmt+=' #[fg=#444444]│ #[fg=#666666]#{@ghostrun-view-pos}'
+    # Separator + elapsed time (pure tmux formats; avoid #() async/cached stale values)
+    fmt+=' #[fg=#444444]│ #[fg=#666666]#{?#{pane_dead},#{?#{&&:#{m/r:^[0-9]+$,#{@ghostrun-ts}},#{m/r:^[0-9]+$,#{pane_dead_time}},#{>=:#{pane_dead_time},#{@ghostrun-ts}}},#{?#{e|>=:#{e|-:#{pane_dead_time},#{@ghostrun-ts}},60},#{e|/:#{e|-:#{pane_dead_time},#{@ghostrun-ts}},60}m#{e|m:#{e|-:#{pane_dead_time},#{@ghostrun-ts}},60}s,#{e|-:#{pane_dead_time},#{@ghostrun-ts}}s},n/a},run}'
+    # Right side
+    fmt+='#[align=right]'
+    fmt+='#[fg=white]q #[fg=#666666]quit #[fg=#444444]│ #[fg=white]m #[fg=#666666]input #[fg=#444444]│ #[fg=white][ ] #[fg=#666666]nav '
+
+    tmux set-option -t "$gs" 'status-format[0]' "$fmt"
+}
+
 popup_output() {
     local gs
     gs=$(ghost_session_name "${GHOSTRUN_SESSION}")
@@ -178,11 +202,13 @@ popup_output() {
     _log "popup_output: gs=$gs popup_tty=$popup_tty"
 
     install_output_key_overrides "$popup_tty" "$fallback_table" "$restore_file" "$gs"
+    install_view_sync_hooks "$gs"
     output_keys_installed=1
     trap 'if [ "$output_keys_installed" -eq 1 ]; then cleanup_output_key_overrides "$fallback_table" "$restore_file"; output_keys_installed=0; fi' INT TERM HUP
     tmux set-option -t "$gs" @ghostrun-open-mode "" 2>/dev/null || true
     tmux select-window -t "$gs:$view_idx" 2>/dev/null || true
     set_view_index "$gs" "$view_idx"
+    configure_output_status "$gs"
 
     env -u TMUX tmux -S "$socket_path" attach-session -t "$gs"
     local attach_status=$?
