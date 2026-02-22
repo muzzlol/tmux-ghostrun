@@ -495,6 +495,7 @@ popup_output() {
     local popup_tty
     local fallback_table="ghostrun-pass-$$_${RANDOM:-0}"
     local restore_file="/tmp/ghostrun-root-keys-$$_${RANDOM:-0}.tmux"
+    local output_keys_installed=0
 
     if ! tmux has-session -t "$gs" 2>/dev/null; then
         echo "input" > "$GHOSTRUN_SWITCH_FILE"
@@ -528,6 +529,8 @@ popup_output() {
     _log "popup_output: gs=$gs popup_tty=$popup_tty"
 
     install_output_key_overrides "$popup_tty" "$fallback_table" "$restore_file" "$gs"
+    output_keys_installed=1
+    trap 'if [ "$output_keys_installed" -eq 1 ]; then cleanup_output_key_overrides "$fallback_table" "$restore_file"; output_keys_installed=0; fi' INT TERM HUP
     tmux set-option -t "$gs" @ghostrun-open-mode "" 2>/dev/null || true
     tmux select-window -t "$gs:$view_idx" 2>/dev/null || true
     set_view_index "$gs" "$view_idx"
@@ -536,7 +539,11 @@ popup_output() {
     local attach_status=$?
     _log "popup_output: attach-session exit status=$attach_status"
 
-    cleanup_output_key_overrides "$fallback_table" "$restore_file"
+    if [ "$output_keys_installed" -eq 1 ]; then
+        cleanup_output_key_overrides "$fallback_table" "$restore_file"
+        output_keys_installed=0
+    fi
+    trap - INT TERM HUP
 
     local next_mode
     next_mode=$(tmux show-option -qv -t "$gs" @ghostrun-open-mode 2>/dev/null || true)
