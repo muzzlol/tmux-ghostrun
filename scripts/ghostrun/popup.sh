@@ -153,7 +153,7 @@ configure_output_status() {
     # Separator + position (stored option, updated on every nav)
     fmt+=' #[fg=#444444]│ #[fg=#666666]#{@ghostrun-view-pos}'
     # Separator + elapsed time (pure tmux formats; avoid #() async/cached stale values)
-    fmt+=' #[fg=#444444]│ #[fg=#666666]#{?#{pane_dead},#{?#{&&:#{m/r:^[0-9]+$,#{@ghostrun-ts}},#{m/r:^[0-9]+$,#{pane_dead_time}},#{>=:#{pane_dead_time},#{@ghostrun-ts}}},#{?#{e|>=:#{e|-:#{pane_dead_time},#{@ghostrun-ts}},60},#{e|/:#{e|-:#{pane_dead_time},#{@ghostrun-ts}},60}m#{e|m:#{e|-:#{pane_dead_time},#{@ghostrun-ts}},60}s,#{e|-:#{pane_dead_time},#{@ghostrun-ts}}s},n/a},run}'
+    fmt+=' #[fg=#444444]│ #[fg=#666666]#{?#{pane_dead},#{?#{&&:#{m/r:^[0-9]+$,#{@ghostrun-ts}},#{m/r:^[0-9]+$,#{pane_dead_time}},#{>=:#{pane_dead_time},#{@ghostrun-ts}}},#{?#{e|>=:#{e|-:#{pane_dead_time},#{@ghostrun-ts}},60},#{e|/:#{e|-:#{pane_dead_time},#{@ghostrun-ts}},60}m#{e|m:#{e|-:#{pane_dead_time},#{@ghostrun-ts}},60}s,#{e|-:#{pane_dead_time},#{@ghostrun-ts}}s},n/a},running}'
     # Right side
     fmt+='#[align=right]'
     fmt+='#[fg=white]q #[fg=#666666]quit #[fg=#444444]│ #[fg=white]m #[fg=#666666]input #[fg=#444444]│ #[fg=white][ ] #[fg=#666666]nav '

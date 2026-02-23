@@ -5,13 +5,13 @@
 - output popup shows that command's pane using a native tmux client
 
 ## Output mode keys
+> **Note:** Output keys are active only while the output popup is open.
 
-- `[` previous command (no wrap)
-- `]` next command (no wrap)
+- `[`/`]` to move to previous/next output; native tmux session-switch bindings still work, so you can use them to move across ghostrun outputs.
 - `Up` / `Down` scroll output (copy-mode aware)
 - `m` switch back to input mode
 - `q` or `Esc` close output popup
-- output keys are active only while output popup is open
+
 
 ## Options
 
