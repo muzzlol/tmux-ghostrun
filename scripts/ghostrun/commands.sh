@@ -141,7 +141,8 @@ cmd_exec() {
     _log "exec: metadata set on window $new_idx (remain-on-exit=${remain_val:-unset})"
 
     local respawn_out
-    respawn_out=$(tmux respawn-pane -k -t "$gs:$new_idx" -c "$cwd" sh -c "$cmd" 2>&1)
+    respawn_out=$(tmux respawn-pane -k -t "$gs:$new_idx" -c "$cwd" \
+        sh -c 'printf "\n\033[38;5;245m$ %s\033[0m\n" "$0"; eval "$0"' "$cmd" 2>&1)
     if [ $? -ne 0 ]; then
         _log "exec: ERROR — respawn-pane failed on $new_idx: $respawn_out"
         tmux kill-window -t "$gs:$new_idx" 2>/dev/null || true
