@@ -4,6 +4,27 @@
 - input popup captures a command and runs it in a hidden ghost session
 - output popup shows that command's pane using a native tmux client
 
+## Install
+
+**With [TPM](https://github.com/tmux-plugins/tpm):**
+```
+set -g @plugin 'muzzlol/tmux-ghostrun'
+```
+Then press `prefix + I` to install.
+
+**Manually:**
+```bash
+git clone https://github.com/muzzlol/tmux-ghostrun ~/.tmux/tmux-ghostrun
+```
+Add to `~/.tmux.conf`:
+```
+run-shell ~/.tmux/tmux-ghostrun/tmux-ghostrun.tmux
+```
+
+## Usage
+
+Press `prefix + Space` to open the input popup, type a command, and press `Enter`. The command runs in a hidden session. Press `prefix + Space` again to view the output.
+
 ## Output mode keys
 > **Note:** Output keys are active only while the output popup is open.
 
