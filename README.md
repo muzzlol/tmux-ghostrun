@@ -4,6 +4,8 @@
 - input popup captures a command and runs it in a hidden ghost session
 - output popup shows that command's pane using a native tmux client
 
+https://github.com/muzzlol/tmux-ghostrun/raw/main/showcase.mp4
+
 ## Install
 
 **With [TPM](https://github.com/tmux-plugins/tpm):**
